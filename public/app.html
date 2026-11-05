@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stock Flow</title>
+<style>
+:root{--bg:#eef1f3;--panel:#fff;--ink:#1c2630;--mute:#5d6b78;--line:#d6dde3;--accent:#0f6b63;--accent-ink:#fff;--warn:#b4531a;--side:#1c2630}
+@media (prefers-color-scheme:dark){:root{--bg:#12181d;--panel:#1a222a;--ink:#e6ebef;--mute:#93a1ad;--line:#2c3742;--accent:#3cb4a6;--accent-ink:#06201d;--warn:#e58a4f;--side:#0d1216}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;font:15px/1.5 "Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+h2{margin:0 0 14px;font-size:22px;letter-spacing:-.01em}
+h3{margin:0 0 10px;font-size:16px}
+button,input,select,textarea{font:inherit;color:inherit}
+input,select,textarea{padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--panel);min-width:0}
+textarea{min-height:64px;resize:vertical}
+button:disabled{opacity:.45;cursor:not-allowed}
+.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:12px 0}
+.summary>div{background:var(--bg);border-radius:6px;padding:8px}
+.summary b{display:block;font-size:17px}
+.actions{display:flex;gap:6px;flex-wrap:wrap}
+.table-wrap{overflow:auto}
+.status{font-size:12px;padding:3px 7px;border-radius:12px;background:var(--bg)}
+button{padding:8px 14px;border:1px solid var(--line);border-radius:6px;background:var(--panel);cursor:pointer}
+button.pri{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+button.del{color:var(--warn)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#login{max-width:340px;margin:12vh auto;background:var(--panel);padding:28px;border-radius:10px;border:1px solid var(--line)}
+#login input{width:100%;margin-bottom:12px}
+#app{display:grid;grid-template-columns:200px 1fr;min-height:100vh}
+nav{background:var(--side);padding:18px 10px;display:flex;flex-direction:column;gap:4px}
+nav b{color:#fff;padding:4px 10px 14px;font-size:17px}
+nav button{background:none;border:0;color:#b9c4cd;text-align:left;border-radius:6px}
+nav button.on{background:var(--accent);color:var(--accent-ink);font-weight:600}
+nav .who{margin-top:auto;color:#8a98a4;font-size:13px;padding:10px}
+main{padding:24px;overflow:auto}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px;margin-bottom:16px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
+.big{font-size:30px;font-weight:700}
+.mute{color:var(--mute);font-size:13px}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line)}
+th{font-weight:600;color:var(--mute);font-size:13px}
+td.n,th.n{text-align:right}
+.low{color:var(--warn);font-weight:600}
+.pos{display:grid;grid-template-columns:1fr 340px;gap:16px}
+.items{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.items button{text-align:left;padding:10px}
+.bar{height:10px;background:var(--accent);border-radius:3px;min-width:2px}
+#err{color:var(--warn);min-height:20px;margin-bottom:8px}
+@media (max-width:800px){#app{grid-template-columns:1fr}nav{flex-direction:row;flex-wrap:wrap}nav .who{margin:0}.pos{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div id="login" hidden>
+  <h2>Stock Flow</h2>
+  <div id="err"></div>
+  <input id="u" placeholder="Username" autocomplete="username">
+  <input id="p" type="password" placeholder="Password" autocomplete="current-password">
+  <button class="pri" id="go" style="width:100%">Sign in</button>
+</div>
+<div id="app" hidden>
+  <nav id="nav"></nav>
+  <main id="main"></main>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const e = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const money = n => '₹' + Number(n || 0).toFixed(2);
+let token = localStorage.token, me = JSON.parse(localStorage.me || 'null');
+
+async function api(path, method = 'GET', body) {
+  const r = await fetch('/api/' + path, {
+    method, body: body && JSON.stringify(body),
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+  });
+  const d = await r.json().catch(() => ({}));
+  if (r.status === 401 && path !== 'login') { logout(); throw new Error('Please sign in again'); }
+  if (!r.ok) throw new Error(d.error || 'Something went wrong');
+  return d;
+}
+const safe = fn => async (...a) => { try { await fn(...a); } catch (x) { alert(x.message); } };
+
+// ---------- Login ----------
+async function login() {
+  try {
+    const d = await api('login', 'POST', { username: $('#u').value, password: $('#p').value });
+    token = d.token; me = d.user;
+    localStorage.token = token; localStorage.me = JSON.stringify(me);
+    start();
+  } catch (x) { $('#err').textContent = x.message; }
+}
+function logout() { localStorage.clear(); token = me = null; start(); }
+$('#go').onclick = login;
+$('#p').onkeydown = ev => ev.key === 'Enter' && login();
+
+// ---------- Shell ----------
+const views = {
+  Dashboard: { admin: 1, fn: dashboard },
+  'Point of sale': { admin: 1, cashier: 1, fn: pos },
+  'Sales & returns': { admin: 1, cashier: 1, fn: salesManagement },
+  Inventory: { admin: 1, fn: () => crud('Inventory', 'products', [
+    ['sku','SKU'],['name','Name'],['price','Price','number'],['cost','Cost','number'],['stock','Stock','number'],['reorder_level','Reorder at','number'],['hsn_code','HSN code'],['gst_rate','GST rate %','number']]) },
+  Purchases: { admin: 1, fn: purchases },
+  Suppliers: { admin: 1, fn: () => crud('Suppliers', 'suppliers', [['name','Name'],['phone','Phone'],['email','Email']]) },
+  Customers: { admin: 1, cashier: 1, fn: () => crud('Customers', 'customers', [['name','Name'],['phone','Phone'],['email','Email'],['gstin','GSTIN'],['state','State'],['address','Address']]) },
+  Staff: { admin: 1, fn: () => crud('Staff', 'users', [['username','Username'],['name','Full name'],['password','Password (blank = keep)','password'],['role','Role: admin or cashier']]) },
+};
+function start() {
+  if (!token) { location.replace('/'); return; }
+  $('#app').hidden = false;
+  const names = Object.keys(views).filter(k => views[k][me.role]);
+  $('#nav').innerHTML = '<b>Stock Flow</b>' + names.map(n => `<button data-v="${n}">${n}</button>`).join('') +
+    `<div class="who">${e(me.name)} (${me.role})<br><button id="out" style="margin-top:6px">Sign out</button></div>`;
+  $('#out').onclick = logout;
+  $('#nav').onclick = ev => ev.target.dataset.v && show(ev.target.dataset.v);
+  show(names[0]);
+}
+const show = safe(async name => {
+  document.querySelectorAll('nav [data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === name));
+  await views[name].fn();
+});
+
+// ---------- Generic CRUD table ----------
+async function crud(title, path, fields) {
+  const rows = await api(path);
+  $('#main').innerHTML = `<h2>${title}</h2>
+  <form class="card row" id="f"><input type="hidden" name="id">
+    ${fields.map(f => `<input name="${f[0]}" placeholder="${f[1]}" type="${f[2] || 'text'}" step="any">`).join('')}
+    <button class="pri">Save</button><button type="button" id="clr">Clear</button></form>
+  <div class="card" style="overflow:auto"><table><tr>${fields.filter(f => f[2] !== 'password').map(f => `<th>${f[1]}</th>`).join('')}<th></th></tr>
+  ${rows.map(r => `<tr>${fields.filter(f => f[2] !== 'password').map(f => {
+      const low = path === 'products' && f[0] === 'stock' && r.stock <= r.reorder_level;
+      return `<td class="${low ? 'low' : ''}">${e(r[f[0]])}</td>`; }).join('')}
+    <td class="n"><button data-edit="${r.id}">Edit</button> <button class="del" data-del="${r.id}">Delete</button></td></tr>`).join('') || '<tr><td>Nothing here yet. Add the first entry above.</td></tr>'}
+  </table></div>`;
+  const f = $('#f');
+  f.onsubmit = safe(async ev => {
+    ev.preventDefault();
+    const b = Object.fromEntries(new FormData(f));
+    await api(b.id ? `${path}/${b.id}` : path, b.id ? 'PUT' : 'POST', b);
+    crud(title, path, fields);
+  });
+  $('#clr').onclick = () => f.reset();
+  $('#main').onclick = safe(async ev => {
+    const t = ev.target;
+    if (t.dataset.edit) { const r = rows.find(x => x.id == t.dataset.edit); f.elements.id.value = r.id;
+      fields.forEach(x => f.elements[x[0]].value = x[2] === 'password' ? '' : (r[x[0]] ?? '')); f.scrollIntoView(); }
+    if (t.dataset.del && confirm('Delete this entry?')) { await api(`${path}/${t.dataset.del}`, 'DELETE'); crud(title, path, fields); }
+  });
+}
+
+// ---------- Point of sale with product-level GST ----------
+async function pos() {
+  const [products, customers, sales, config] = await Promise.all([api('products'), api('customers'), api('sales'), api('config')]);
+  const cart = {};
+  const store = config.store;
+  $('#main').innerHTML = `<h2>Point of sale</h2>
+    ${!config.gstConfigured ? '<div class="card"><b>GST setup incomplete.</b> Products with a non-zero GST rate cannot be billed until STORE_GSTIN and STORE_STATE_CODE (or STORE_STATE) are configured in the server environment.</div>' : ''}
+    <div class="pos">
+      <div><input id="q" placeholder="Search by name or SKU" style="width:100%;margin-bottom:10px"><div class="items" id="items"></div></div>
+      <div class="card"><h3>Current bill</h3><div id="cart"></div>
+        <div class="row" style="margin:10px 0"><select id="cust" style="flex:1"><option value="">Walk-in customer</option>
+        ${customers.map(c => `<option value="${c.id}">${e(c.name)}</option>`).join('')}</select>
+        <input id="disc" type="number" min="0" step="0.01" placeholder="Discount" style="width:115px"></div>
+        <div class="row"><input id="place" placeholder="Place of supply / state" value="${e(store.state)}" style="flex:1"><input id="gstin" placeholder="Customer GSTIN (optional)" style="flex:1"></div>
+        <div class="summary" id="bill-summary"></div>
+        <button class="pri" id="pay" style="width:100%;margin-top:10px">Complete sale & generate invoice</button>
+        <p class="mute">Prices are treated as GST-exclusive. GST is calculated after allocating the bill discount across items.</p>
+      </div>
+    </div>
+    <div class="card table-wrap"><h3>Recent sales</h3><table><tr><th>#</th><th>Time</th><th>Customer</th><th>Cashier</th><th class="n">Total</th><th></th></tr>
+    ${sales.slice(0, 10).map(s => `<tr><td>${e(s.invoice_no || s.id)}</td><td>${e(s.created_at)}</td><td>${e(s.customer || 'Walk-in')}</td><td>${e(s.cashier || '')}</td><td class="n">${money(s.total)}</td><td><button data-invoice="${s.id}">Receipt / invoice PDF</button></td></tr>`).join('') || '<tr><td colspan="6" class="mute">No sales yet.</td></tr>'}</table></div>`;
+  const calculate = () => {
+    const lines = Object.entries(cart).map(([id, qty]) => {
+      const p = products.find(x => x.id == id);
+      return { p, qty, gross: Number(p.price) * qty };
+    });
+    const subtotal = lines.reduce((a, x) => a + x.gross, 0);
+    const discount = Math.min(subtotal, Math.max(0, Number($('#disc').value || 0)));
+    let allocated = 0;
+    let taxable = 0, cgst = 0, sgst = 0, igst = 0;
+    const place = $('#place').value.trim();
+    const code = value => { const text = String(value || '').trim(); return /^\d{2}/.test(text) ? text.slice(0, 2) : ''; };
+    const originCode = code(store.gstin) || store.state_code || '';
+    const destinationCode = code($('#gstin').value) || code(place);
+    const isInterstate = originCode && destinationCode ? originCode !== destinationCode : (!!place && !!store.state && place.toLowerCase() !== store.state.toLowerCase());
+    lines.forEach((line, index) => {
+      const part = index === lines.length - 1 ? discount - allocated : (subtotal ? Math.round(discount * line.gross / subtotal * 100) / 100 : 0);
+      allocated += part;
+      const base = Math.max(0, line.gross - part);
+      const tax = Math.round(base * Number(line.p.gst_rate || 0)) / 100;
+      taxable += base;
+      if (isInterstate) igst += tax; else { cgst += Math.round(tax / 2 * 100) / 100; sgst += tax - Math.round(tax / 2 * 100) / 100; }
+    });
+    const taxTotal = cgst + sgst + igst;
+    return { subtotal, discount, taxable, cgst, sgst, igst, taxTotal, total: taxable + taxTotal };
+  };
+  const draw = () => {
+    const q = $('#q').value.toLowerCase();
+    $('#items').innerHTML = products.filter(p => (p.name + (p.sku || '')).toLowerCase().includes(q)).map(p =>
+      `<button data-add="${p.id}" ${p.stock < 1 ? 'disabled' : ''}>${e(p.name)}<br><span class="mute">${money(p.price)} · GST ${Number(p.gst_rate || 0)}% · ${p.stock} left</span></button>`).join('');
+    $('#cart').innerHTML = Object.entries(cart).map(([id, qty]) => { const p = products.find(x => x.id == id);
+      return `<div class="row" style="justify-content:space-between;margin-bottom:6px"><span>${e(p.name)}</span>
+      <span><button data-m="${id}">−</button> ${qty} <button data-add="${id}">+</button></span><b>${money(qty * p.price)}</b></div>`; }).join('') || '<p class="mute">Tap a product to add it to the bill.</p>';
+    const t = calculate();
+    $('#bill-summary').innerHTML = `<div><span class="mute">Subtotal</span><b>${money(t.subtotal)}</b></div><div><span class="mute">Discount</span><b>−${money(t.discount)}</b></div><div><span class="mute">Taxable</span><b>${money(t.taxable)}</b></div><div><span class="mute">CGST</span><b>${money(t.cgst)}</b></div><div><span class="mute">SGST</span><b>${money(t.sgst)}</b></div><div><span class="mute">IGST</span><b>${money(t.igst)}</b></div><div><span class="mute">Grand total</span><b>${money(t.total)}</b></div>`;
+  };
+  $('#main').onclick = safe(async ev => {
+    const a = ev.target.closest('[data-add]'), m = ev.target.dataset.m, invoice = ev.target.dataset.invoice;
+    if (invoice) { await downloadFile(`sales/${invoice}/invoice.pdf`); return; }
+    if (a) { const id = a.dataset.add, p = products.find(x => x.id == id); if ((cart[id] || 0) < p.stock) cart[id] = (cart[id] || 0) + 1; }
+    if (m) { cart[m] = (cart[m] || 0) - 1; if (cart[m] < 1) delete cart[m]; }
+    draw();
+  });
+  $('#q').oninput = $('#disc').oninput = $('#place').oninput = $('#gstin').oninput = draw;
+  $('#cust').onchange = () => {
+    const customer = customers.find(c => c.id == $('#cust').value);
+    if (customer) { $('#place').value = customer.state || store.state || ''; $('#gstin').value = customer.gstin || ''; }
+    else { $('#place').value = store.state || ''; $('#gstin').value = ''; }
+    draw();
+  };
+  $('#pay').onclick = safe(async () => {
+    const items = Object.entries(cart).map(([product_id, qty]) => ({ product_id: +product_id, qty }));
+    if (!items.length) throw new Error('Cart is empty');
+    const r = await api('sales', 'POST', { items, customer_id: $('#cust').value || null,
+      discount: Number($('#disc').value || 0), place_of_supply: $('#place').value.trim(), customer_gstin: $('#gstin').value.trim() });
+    alert(`Sale ${r.invoice_no} complete. Total ${money(r.total)}`);
+    await downloadFile(`sales/${r.id}/invoice.pdf`);
+    pos();
+  });
+  draw();
+}
+
+async function downloadFile(path) {
+  const r = await fetch('/api/' + path, { headers: { Authorization: 'Bearer ' + token } });
+  if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || 'Download failed'); }
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url;
+  a.download = (r.headers.get('Content-Disposition') || '').split('filename=')[1]?.replaceAll('"', '') || path.split('/').pop();
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// ---------- Sales history, invoice downloads, returns and CSV exports ----------
+async function salesManagement() {
+  const [sales, config] = await Promise.all([api('sales'), api('config')]);
+  let returns = [];
+  if (me.role === 'admin') returns = await api('returns');
+  $('#main').innerHTML = `<h2>Sales & returns</h2>
+    <div class="card"><div class="row" style="justify-content:space-between"><div><h3>Sales register</h3><span class="mute">Open any sale to view its tax breakdown or download the receipt / invoice.</span></div>
+      ${me.role === 'admin' ? '<div class="actions"><button data-export="sales">Export sales CSV</button><button data-export="returns">Export returns CSV</button><button data-export="products">Export products CSV</button></div>' : ''}</div>
+      <div class="table-wrap"><table><tr><th>Invoice</th><th>Date</th><th>Customer</th><th>Status</th><th class="n">GST</th><th class="n">Total</th><th></th></tr>
+      ${sales.map(s => `<tr><td>${e(s.invoice_no || s.id)}</td><td>${e(s.created_at)}</td><td>${e(s.customer || 'Walk-in')}</td><td><span class="status">${e(s.status || 'completed')}</span></td><td class="n">${money(s.tax_total)}</td><td class="n">${money(s.total)}</td><td class="actions"><button data-invoice="${s.id}">PDF</button><button data-view="${s.id}">Details${me.role === 'admin' ? ' / return' : ''}</button></td></tr>`).join('') || '<tr><td colspan="7" class="mute">No sales recorded yet.</td></tr>'}</table></div></div>
+    <div id="sale-detail"></div>
+    ${me.role === 'admin' ? `<div class="card"><h3>Return / refund history</h3><div class="table-wrap"><table><tr><th>Credit note</th><th>Original invoice</th><th>Date</th><th>Reason</th><th class="n">Refund</th><th></th></tr>
+      ${returns.map(r => `<tr><td>${e(r.return_no || r.id)}</td><td>${e(r.invoice_no || r.sale_id)}</td><td>${e(r.created_at)}</td><td>${e(r.reason || '')}</td><td class="n">${money(r.refund_amount)}</td><td><button data-credit="${r.id}">Credit note PDF</button></td></tr>`).join('') || '<tr><td colspan="6" class="mute">No returns yet.</td></tr>'}</table></div></div>` : ''}`;
+  $('#main').onclick = safe(async ev => {
+    const invoice = ev.target.dataset.invoice, view = ev.target.dataset.view, credit = ev.target.dataset.credit, exp = ev.target.dataset.export;
+    if (invoice) await downloadFile(`sales/${invoice}/invoice.pdf`);
+    if (credit) await downloadFile(`returns/${credit}/credit-note.pdf`);
+    if (exp) await downloadFile(`exports/${exp}.csv`);
+    if (view) await showSaleDetails(+view, config.store);
+  });
+}
+
+async function showSaleDetails(id, store) {
+  const sale = await api(`sales/${id}`);
+  const canReturn = me.role === 'admin';
+  $('#sale-detail').innerHTML = `<div class="card"><div class="row" style="justify-content:space-between"><h3>${e(sale.invoice_no || 'Sale #' + sale.id)}</h3><button data-invoice="${sale.id}">Download PDF</button></div>
+    <div class="summary"><div><span class="mute">Subtotal</span><b>${money(sale.subtotal)}</b></div><div><span class="mute">Discount</span><b>${money(sale.discount)}</b></div><div><span class="mute">Taxable</span><b>${money(sale.taxable_amount)}</b></div><div><span class="mute">CGST</span><b>${money(sale.cgst)}</b></div><div><span class="mute">SGST</span><b>${money(sale.sgst)}</b></div><div><span class="mute">IGST</span><b>${money(sale.igst)}</b></div><div><span class="mute">Total</span><b>${money(sale.total)}</b></div></div>
+    <div class="table-wrap"><table><tr><th>Item</th><th>HSN</th><th class="n">Sold</th><th class="n">Returned</th><th class="n">Available</th><th class="n">Rate</th><th class="n">Taxable</th><th class="n">GST</th></tr>
+    ${sale.items.map(i => `<tr><td>${e(i.product_name || 'Item')}</td><td>${e(i.hsn_code || '-')}</td><td class="n">${i.qty}</td><td class="n">${i.returned_qty || 0}</td><td class="n">${Math.max(0, i.qty - (i.returned_qty || 0))}</td><td class="n">${Number(i.tax_rate || 0)}%</td><td class="n">${money(i.taxable_value)}</td><td class="n">${money(i.tax_amount)}</td></tr>`).join('')}</table></div>
+    ${canReturn ? `<hr><h3>Process a return / refund</h3><p class="mute">Choose the quantity for each item. The refund is calculated from the original discounted taxable value and GST. Returned items are added back to stock by default.</p>
+      <div class="table-wrap"><table><tr><th>Item</th><th>Available</th><th>Return quantity</th></tr>${sale.items.map(i => `<tr><td>${e(i.product_name || 'Item')}</td><td>${Math.max(0, i.qty - (i.returned_qty || 0))}</td><td><input type="number" min="0" max="${Math.max(0, i.qty - (i.returned_qty || 0))}" value="0" data-return-qty="${i.id}" style="width:90px" ${i.qty - (i.returned_qty || 0) < 1 ? 'disabled' : ''}></td></tr>`).join('')}</table></div>
+      <div class="row" style="margin-top:10px"><input id="return-reason" placeholder="Reason for return" value="Customer return" style="flex:1"><label><input type="checkbox" id="restock" checked> Restock returned items</label><button class="pri" id="submit-return" data-sale="${sale.id}">Process refund</button></div>` : ''}
+    </div>`;
+  if (canReturn) $('#submit-return').onclick = safe(async () => {
+    const items = [...document.querySelectorAll('[data-return-qty]')].map(input => ({ sale_item_id: +input.dataset.returnQty, qty: +input.value })).filter(x => x.qty > 0);
+    if (!items.length) throw new Error('Enter at least one return quantity');
+    if (!confirm('Process this return and refund using the original sale values?')) return;
+    const result = await api(`sales/${sale.id}/returns`, 'POST', { items, reason: $('#return-reason').value, restock: $('#restock').checked });
+    alert(`Return ${result.return_no} recorded. Refund: ${money(result.refund_amount)}`);
+    salesManagement();
+  });
+}
+
+// ---------- Purchase orders ----------
+async function purchases() {
+  const [suppliers, products, orders] = await Promise.all([api('suppliers'), api('products'), api('purchase-orders')]);
+  const lines = [];
+  $('#main').innerHTML = `<h2>Purchases</h2><div class="card"><h3>New purchase order</h3><div class="row">
+    <select id="sup"><option value="">Choose supplier</option>${suppliers.map(s => `<option value="${s.id}">${e(s.name)}</option>`).join('')}</select>
+    <select id="prod">${products.map(p => `<option value="${p.id}">${e(p.name)}</option>`).join('')}</select>
+    <input id="qty" type="number" min="1" placeholder="Qty" style="width:80px"><input id="cost" type="number" step="any" placeholder="Unit cost" style="width:110px">
+    <button id="add">Add line</button></div><div id="lines" style="margin:10px 0"></div><button class="pri" id="mk">Place order</button></div>
+    <div class="card" style="overflow:auto"><h3>Orders</h3><table><tr><th>#</th><th>Supplier</th><th>Date</th><th class="n">Total</th><th>Status</th><th></th></tr>
+    ${orders.map(o => `<tr><td>${o.id}</td><td>${e(o.supplier)}</td><td>${e(o.created_at)}</td><td class="n">${money(o.total)}</td><td>${o.status}</td>
+    <td>${o.status === 'pending' ? `<button data-rec="${o.id}">Mark received</button>` : ''}</td></tr>`).join('') || '<tr><td>No orders yet.</td></tr>'}</table></div>`;
+  $('#add').onclick = () => {
+    const id = +$('#prod').value, qty = +$('#qty').value, cost = +$('#cost').value;
+    if (!id || qty < 1 || cost < 0) return;
+    lines.push({ product_id: id, qty, cost });
+    $('#lines').innerHTML = lines.map(l => `<div>${e(products.find(p => p.id === l.product_id).name)} × ${l.qty} @ ${money(l.cost)}</div>`).join('');
+  };
+  $('#mk').onclick = safe(async () => { await api('purchase-orders', 'POST', { supplier_id: $('#sup').value, items: lines }); purchases(); });
+  $('#main').onclick = safe(async ev => { if (ev.target.dataset.rec) { await api(`purchase-orders/${ev.target.dataset.rec}/receive`, 'POST'); purchases(); } });
+}
+
+// ---------- Dashboard / reports ----------
+async function dashboard() {
+  const r = await api('reports');
+  const max = Math.max(1, ...r.daily.map(d => d.revenue));
+  $('#main').innerHTML = `<h2>Dashboard</h2><div class="grid">
+    <div class="card"><div class="mute">Today's revenue</div><div class="big">${money(r.today.revenue)}</div><div class="mute">${r.today.orders} orders</div></div>
+    <div class="card"><div class="mute">Lifetime gross profit</div><div class="big">${money(r.profit)}</div></div>
+    <div class="card"><div class="mute">Items to reorder</div><div class="big">${r.low.length}</div></div></div>
+    <div class="grid"><div class="card"><h3>Revenue, last 7 days with sales</h3>
+    ${r.daily.map(d => `<div class="row" style="margin:6px 0"><span class="mute" style="width:90px">${d.day}</span><div class="bar" style="width:${d.revenue / max * 60}%"></div><span>${money(d.revenue)}</span></div>`).join('') || '<p class="mute">No sales yet.</p>'}</div>
+    <div class="card"><h3>Best sellers</h3><table>${r.top.map(t => `<tr><td>${e(t.name)}</td><td class="n">${t.qty} sold</td><td class="n">${money(t.revenue)}</td></tr>`).join('') || '<tr><td class="mute">No sales yet.</td></tr>'}</table></div>
+    <div class="card"><h3>Low stock</h3><table>${r.low.map(t => `<tr><td>${e(t.name)}</td><td class="n low">${t.stock} left</td></tr>`).join('') || '<tr><td class="mute">Everything is stocked.</td></tr>'}</table></div></div>`;
+}
+start();
+</script>
+</body>
+</html>

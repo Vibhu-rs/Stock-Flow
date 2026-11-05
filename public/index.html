@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stock Flow</title>
+<style>
+:root{--bg:#f3f5f6;--panel:#fff;--ink:#14202b;--mute:#566574;--line:#d6dde3;--accent:#0f6b63;--accent-ink:#fff;--soft:#e3efed;--warn:#b4531a}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1519;--panel:#172027;--ink:#e8edf1;--mute:#98a6b2;--line:#2a3640;--accent:#3cb4a6;--accent-ink:#06201d;--soft:#14302d;--warn:#ec9a63}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;font:16px/1.55 "Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+header{display:flex;justify-content:space-between;align-items:center;padding:18px 0}
+.brand{font-weight:700;font-size:19px;letter-spacing:-.01em}
+.brand span{color:var(--accent)}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+.btn{padding:10px 18px;border-radius:8px;border:1px solid var(--line);background:var(--panel);font-weight:600}
+.btn.pri{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.hero{display:grid;grid-template-columns:1.1fr 400px;gap:56px;align-items:center;padding:48px 0 64px}
+h1{font-size:clamp(32px,4.6vw,52px);line-height:1.08;letter-spacing:-.025em;margin:0 0 18px}
+.lead{font-size:18px;color:var(--mute);max-width:520px;margin:0 0 22px}
+.ticks{list-style:none;padding:0;margin:0;display:grid;gap:8px}
+.ticks li::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);margin-right:10px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:24px}
+.tabs{display:grid;grid-template-columns:1fr 1fr;background:var(--bg);border-radius:8px;padding:4px;margin-bottom:18px}
+.tabs button{border:0;background:none;padding:9px;border-radius:6px;font-weight:600;color:var(--mute)}
+.tabs button[aria-selected=true]{background:var(--panel);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.15)}
+label{display:block;font-size:13px;font-weight:600;margin:12px 0 4px}
+input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+.hint{font-size:13px;color:var(--mute);margin:4px 0 0}
+#msg{min-height:22px;margin:12px 0 0;font-size:14px;color:var(--warn)}
+.card .btn.pri{width:100%;margin-top:14px}
+#back{background:var(--soft);border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:14px}
+#back a{color:var(--accent);font-weight:700}
+section h2{font-size:26px;letter-spacing:-.015em;margin:0 0 20px}
+.feats{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:56px}
+.feat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px}
+.feat b{display:block;margin-bottom:4px}
+.feat p{margin:0;color:var(--mute);font-size:14px}
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-bottom:56px;counter-reset:s}
+.step{border-top:3px solid var(--accent);padding-top:12px}
+.step::before{counter-increment:s;content:counter(s);font-size:28px;font-weight:700;color:var(--accent)}
+.step p{margin:4px 0 0;color:var(--mute)}
+footer{border-top:1px solid var(--line);padding:20px 0;color:var(--mute);font-size:14px}
+@media (max-width:860px){.hero{grid-template-columns:1fr;gap:32px;padding-top:24px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">Stock<span>Flow</span></div>
+  </header>
+
+  <div class="hero">
+    <div>
+      <h1>Run your whole store from one screen.</h1>
+      <p class="lead">Track stock, ring up sales, order from suppliers, manage your team and see how the business is doing. No spreadsheets, no guesswork.</p>
+      <ul class="ticks">
+        <li>Live stock levels with low-stock alerts</li>
+        <li>Fast checkout that updates inventory automatically</li>
+        <li>GST-aware receipts, invoices and partial returns</li>
+        <li>CSV reports and PDF invoices / credit notes</li>
+        <li>Separate access for owners and cashiers</li>
+      </ul>
+    </div>
+
+    <div class="card" id="auth">
+      <div id="back" hidden>Signed in as <b id="who"></b>. <a href="/app.html">Open the store</a></div>
+      <div class="tabs" role="tablist">
+        <button role="tab" id="t-in" aria-selected="true">Sign in</button>
+        <button role="tab" id="t-up" aria-selected="false">Create account</button>
+      </div>
+
+      <form id="f-in">
+        <label for="li-u">Username</label><input id="li-u" autocomplete="username" required>
+        <label for="li-p">Password</label><input id="li-p" type="password" autocomplete="current-password" required>
+        <button class="btn pri">Sign in</button>
+      </form>
+
+      <form id="f-up" hidden>
+        <label for="su-n">Your name</label><input id="su-n" autocomplete="name" required>
+        <label for="su-u">Username</label><input id="su-u" autocomplete="username" minlength="3" required>
+        <label for="su-p">Password</label><input id="su-p" type="password" autocomplete="new-password" minlength="8" required>
+        <p class="hint">At least 8 characters.</p>
+        <label for="su-c">Store code</label><input id="su-c" autocomplete="off" required>
+        <p class="hint">Ask the store owner for the code. New accounts start as cashiers.</p>
+        <button class="btn pri">Create account</button>
+      </form>
+      <div id="msg" role="alert"></div>
+    </div>
+  </div>
+
+  <section>
+    <h2>Everything a small store needs</h2>
+    <div class="feats">
+      <div class="feat"><b>Inventory</b><p>Products, prices, costs and reorder levels in one list.</p></div>
+      <div class="feat"><b>Billing and GST</b><p>Generate PDF receipts and invoices with HSN, CGST, SGST or IGST.</p></div>
+      <div class="feat"><b>Returns and refunds</b><p>Process partial returns, restore stock and issue credit notes.</p></div>
+      <div class="feat"><b>Exports</b><p>Download sales, returns and product registers as CSV files.</p></div>
+      <div class="feat"><b>Purchasing</b><p>Place supplier orders and add stock when they arrive.</p></div>
+      <div class="feat"><b>Customers and staff</b><p>Keep customer details and control who can do what.</p></div>
+      <div class="feat"><b>Reports</b><p>Daily revenue, best sellers, profit and items to reorder.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>How to get started</h2>
+    <div class="steps">
+      <div class="step"><b>The owner signs in</b><p>Use the admin account, change the password, then add products and suppliers.</p></div>
+      <div class="step"><b>Staff create an account</b><p>Choose Create account and enter the store code the owner shares with you.</p></div>
+      <div class="step"><b>Start selling</b><p>Cashiers use the point of sale. Owners also get stock, purchasing and reports.</p></div>
+    </div>
+  </section>
+  <footer>Stock Flow</footer>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const save = (k, v) => { try { localStorage.setItem(k, v); } catch (x) {} };
+try {
+  const me = JSON.parse(localStorage.getItem('me') || 'null');
+  if (me && localStorage.getItem('token')) { $('#back').hidden = false; $('#who').textContent = me.name || me.username; }
+} catch (x) {}
+
+function tab(up) {
+  $('#f-in').hidden = up; $('#f-up').hidden = !up; $('#msg').textContent = '';
+  $('#t-in').setAttribute('aria-selected', String(!up));
+  $('#t-up').setAttribute('aria-selected', String(up));
+  (up ? $('#su-n') : $('#li-u')).focus();
+}
+$('#t-in').onclick = () => tab(false);
+$('#t-up').onclick = () => tab(true);
+
+
+async function send(path, data) {
+  $('#msg').textContent = '';
+  try {
+    const r = await fetch('/api/' + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || 'Something went wrong. Please try again.');
+    save('token', d.token); save('me', JSON.stringify(d.user));
+    location.href = '/app.html';
+  } catch (x) { $('#msg').textContent = x.message; }
+}
+$('#f-in').onsubmit = ev => { ev.preventDefault(); send('login', { username: $('#li-u').value, password: $('#li-p').value }); };
+$('#f-up').onsubmit = ev => { ev.preventDefault(); send('signup', { name: $('#su-n').value, username: $('#su-u').value.trim(), password: $('#su-p').value, code: $('#su-c').value }); };
+</script>
+</body>
+</html>
